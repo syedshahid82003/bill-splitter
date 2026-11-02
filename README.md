@@ -155,3 +155,34 @@ You must understand every line you submit. We check this with your video and in 
 5. Paste the repository link and the video link in the application form.
 
 We will run `pnpm install && pnpm check && pnpm typecheck && pnpm test` on your repository.
+
+## Decisions
+
+1. **Atomic conditional UPDATE for payments.** Paying runs a single
+   `UPDATE shares SET paid_at = ?, idempotency_key = ? WHERE id = ? AND paid_at IS NULL`.
+   If two requests race, only one changes a row. The loser re-reads the share:
+   same key returns 200 with the same result, different key returns 409.
+   I chose this over read-then-write because it needs no locks and cannot double-pay.
+
+2. **Integer cents and a deterministic split.** All money is integer cents.
+   A bill is split with `floor(total / n)`, and the remainder goes one cent at a time
+   to the earliest members. Shares always add up to the total. Tiny totals are valid:
+   1 cent between 3 members gives `[1, 0, 0]`, so the amount constraint is `>= 0`.
+
+3. **Database constraints as the last line of defence.** Named FOREIGN KEY, CHECK,
+   and UNIQUE (`bill_id, member_id`) constraints protect the data even if the API
+   has a bug. A bill and its shares are created in one request cycle, so a bill never
+   exists without its shares.
+
+## Extra endpoint
+
+`GET /api/homes/:homeId/bills` — returns all bills with their shares for a home.
+Added so the web page can restore existing bills after a page refresh.
+
+## AI tools used
+
+I used **Kiro** (spec and chat modes) to generate the first version of the migration,
+API routes, web page, and tests. I reviewed every output, fixed type and lint errors,
+and caught and corrected one wrong fix (a `CHECK` constraint that rejected valid
+zero-cent shares from the remainder split). Every line was read and understood before
+it was kept.
