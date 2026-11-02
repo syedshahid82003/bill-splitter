@@ -171,8 +171,7 @@ We will run `pnpm install && pnpm check && pnpm typecheck && pnpm test` on your 
 
 3. **Database constraints as the last line of defence.** Named FOREIGN KEY, CHECK,
    and UNIQUE (`bill_id, member_id`) constraints protect the data even if the API
-   has a bug. A bill and its shares are created in one request cycle, so a bill never
-   exists without its shares.
+   has a bug. A bill and its shares are inserted in one `DB.batch` (a single transaction), so a bill never exists without its shares.
 
 ## Extra endpoint
 

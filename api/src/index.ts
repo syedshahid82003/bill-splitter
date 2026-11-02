@@ -105,9 +105,6 @@ app.post('/api/homes/:homeId/bills', async (c) => {
   const safeTitle = typeof title === 'string' && title.trim() !== '' ? title : 'Bill'
 
   const billId = crypto.randomUUID()
-  await c.env.DB.prepare('INSERT INTO bills (id, home_id, title, total_cents) VALUES (?, ?, ?, ?)')
-    .bind(billId, homeId, safeTitle, totalCents)
-    .run()
 
   // Split: floor division, first (remainder) members each get +1 cent
   const count = members.length
@@ -115,22 +112,25 @@ app.post('/api/homes/:homeId/bills', async (c) => {
   const remainder = totalCents % count
 
   type ShareRow = { id: string; memberId: string; amountCents: number; paidAt: null }
-  const shares: ShareRow[] = []
 
-  for (let i = 0; i < members.length; i++) {
-    const member = members[i]
-    if (!member) continue
-    const amount = i < remainder ? base + 1 : base
-    const shareId = crypto.randomUUID()
+  const shares: ShareRow[] = members.map((member, i) => ({
+    id: crypto.randomUUID(),
+    memberId: member.id,
+    amountCents: i < remainder ? base + 1 : base,
+    paidAt: null,
+  }))
 
-    await c.env.DB.prepare(
-      'INSERT INTO shares (id, bill_id, member_id, amount_cents) VALUES (?, ?, ?, ?)',
-    )
-      .bind(shareId, billId, member.id, amount)
-      .run()
-
-    shares.push({ id: shareId, memberId: member.id, amountCents: amount, paidAt: null })
-  }
+  // Insert the bill and all shares atomically in a single batch
+  await c.env.DB.batch([
+    c.env.DB.prepare(
+      'INSERT INTO bills (id, home_id, title, total_cents) VALUES (?, ?, ?, ?)',
+    ).bind(billId, homeId, safeTitle, totalCents),
+    ...shares.map((s) =>
+      c.env.DB.prepare(
+        'INSERT INTO shares (id, bill_id, member_id, amount_cents) VALUES (?, ?, ?, ?)',
+      ).bind(s.id, billId, s.memberId, s.amountCents),
+    ),
+  ])
 
   return c.json({ id: billId, homeId, title: safeTitle, totalCents, shares }, 201)
 })
