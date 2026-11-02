@@ -26,7 +26,7 @@ CREATE TABLE shares (
   id          TEXT PRIMARY KEY,
   bill_id     TEXT NOT NULL,
   member_id   TEXT NOT NULL,
-  amount_cents INTEGER NOT NULL CONSTRAINT shares_amount_positive CHECK (amount_cents > 0),
+  amount_cents INTEGER NOT NULL CONSTRAINT shares_amount_non_negative CHECK (amount_cents >= 0),
   paid_at     TEXT DEFAULT NULL,
   idempotency_key TEXT DEFAULT NULL,
   CONSTRAINT shares_bill_id_fk FOREIGN KEY (bill_id) REFERENCES bills(id),
