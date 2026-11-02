@@ -136,6 +136,68 @@ app.post('/api/homes/:homeId/bills', async (c) => {
 })
 
 // ---------------------------------------------------------------------------
+// Part 2 – List bills for a home (with shares in member insertion order)
+// ---------------------------------------------------------------------------
+
+app.get('/api/homes/:homeId/bills', async (c) => {
+  const homeId = c.req.param('homeId')
+
+  const home = await c.env.DB.prepare('SELECT id FROM homes WHERE id = ?').bind(homeId).first()
+  if (!home) {
+    return c.json({ error: 'home not found' }, 404)
+  }
+
+  // Fetch all bills for this home
+  const { results: billRows } = await c.env.DB.prepare(
+    'SELECT id, home_id, title, total_cents FROM bills WHERE home_id = ? ORDER BY rowid ASC',
+  )
+    .bind(homeId)
+    .all<{ id: string; home_id: string; title: string; total_cents: number }>()
+
+  // Fetch all shares for those bills, ordered by member insertion order (members.rowid)
+  type ShareRow = {
+    id: string
+    bill_id: string
+    member_id: string
+    amount_cents: number
+    paid_at: string | null
+  }
+
+  const { results: shareRows } = await c.env.DB.prepare(
+    `SELECT s.id, s.bill_id, s.member_id, s.amount_cents, s.paid_at
+     FROM shares s
+     JOIN members m ON m.id = s.member_id
+     WHERE s.bill_id IN (SELECT id FROM bills WHERE home_id = ?)
+     ORDER BY s.bill_id, m.rowid ASC`,
+  )
+    .bind(homeId)
+    .all<ShareRow>()
+
+  // Group shares by bill_id
+  const sharesByBill = new Map<string, ShareRow[]>()
+  for (const share of shareRows) {
+    const list = sharesByBill.get(share.bill_id) ?? []
+    list.push(share)
+    sharesByBill.set(share.bill_id, list)
+  }
+
+  const bills = billRows.map((b) => ({
+    id: b.id,
+    homeId: b.home_id,
+    title: b.title,
+    totalCents: b.total_cents,
+    shares: (sharesByBill.get(b.id) ?? []).map((s) => ({
+      id: s.id,
+      memberId: s.member_id,
+      amountCents: s.amount_cents,
+      paidAt: s.paid_at,
+    })),
+  }))
+
+  return c.json({ bills })
+})
+
+// ---------------------------------------------------------------------------
 // Part 2 – Pay a share (idempotent, concurrency-safe)
 // ---------------------------------------------------------------------------
 
